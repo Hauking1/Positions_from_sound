@@ -41,7 +41,7 @@ saving_data_path = (@__DIR__)*"/data/"
 
 println("HI :)")
 
-batch_size = 1000000
+batch_size = 10000
 listening_length = 44_00
 
 
