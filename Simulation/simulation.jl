@@ -55,7 +55,7 @@ function faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{
         row = @view data[index, :]
         @inbounds for n_ear in 1:3
             circshift!(results[index][n_ear],row,times[index][n_ear])
-            results[index][n_ear] *= (1/distances[index][n_ear]^2)
+            results[index][n_ear] .*= (1/distances[index][n_ear]^2)
             @inbounds results[index][n_ear][1:times[index][n_ear]] .= 0
         end
     end
@@ -71,15 +71,15 @@ function less_d_faster_prepare_data_full_learn(data;ear_positions=StaticArrays.S
     times = [ceil.(Int,(dist/speed_sound .- minimum(dist/speed_sound))/dt) for dist in distances]
     
     results = [Vector{Float64}(undef, 3*listening_length) for _ in 1:batch_size]
-    for index in range(1,batch_size)    #@inbounds
+    @inbounds for index in range(1,batch_size)    #
         row = @view data[index, :]
-        for n_ear in 1:3    #@inbounds
+        @inbounds for n_ear in 1:3    #
             l_index = (n_ear-1)*listening_length+1
             u_index = n_ear*listening_length
             res_write_to = @view results[index][l_index:u_index]
             circshift!(res_write_to,row,times[index][n_ear])
-            results[index][l_index:u_index] *= (1/distances[index][n_ear]^2)
-            results[index][l_index:l_index+times[index][n_ear]] .= 0    #@inbounds
+            @inbounds results[index][l_index:u_index] .*= (1/distances[index][n_ear]^2)
+            @inbounds results[index][l_index:l_index+times[index][n_ear]] .= 0    #
         end
     end
     return results,positions_sound
@@ -131,7 +131,6 @@ listening_length = 44_00
 #@time data_learn,positions = prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
 
-print("done")
 #=
 model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.relu),
     Flux.Dense(500=>100,Flux.relu),
@@ -146,18 +145,38 @@ Flux.train!(model, train_set, opt_state)
 
 #@time create_save_batch_signal_encoded(batch_size_create_data,saving_data_to)
 
-#print("done")
 
-#
-fig = Makie.Figure()
-ax = Makie.Axis(fig[1, 1],title = "many signals",
-xlabel = LaTeXStrings.LaTeXString("time"),
-ylabel = LaTeXStrings.LaTeXString("signal(t)"))
-for index_ear in range(1,1)
-    Makie.lines!(ax, data_learn[index_ear],label="signal concatinated: $index_ear")
+
+function plot_concatenated_dat(data_learn,number_data::Int)
+    fig = Makie.Figure()
+    ax = Makie.Axis(fig[1, 1],title = "many signals",
+    xlabel = LaTeXStrings.LaTeXString("time/dt"),
+    ylabel = LaTeXStrings.LaTeXString("signal(t)"))
+    for index_ear in range(1,number_data)
+        Makie.lines!(ax, data_learn[index_ear],label="signal concatinated: $index_ear")
+    end
+    Makie.axislegend()
+    CairoMakie.display(fig)
+    CairoMakie.save(saving_plot_path*"Test_less_d.png",fig)
 end
-Makie.axislegend()
-CairoMakie.display(fig)
-CairoMakie.save(saving_plot_path*"Test_less_d.png",fig)
-#
+
+
+function plot_single_ear_data(data_learn)
+    fig = Makie.Figure()
+    ax = Makie.Axis(fig[1, 1],title = "many signals",
+    xlabel = LaTeXStrings.LaTeXString("time/dt"),
+    ylabel = LaTeXStrings.LaTeXString("signal(t)"))
+    for index_ear in range(1,3)
+        Makie.lines!(ax, data_learn[1][index_ear],label="signal ear: $index_ear")
+    end
+    Makie.axislegend()
+    CairoMakie.display(fig)
+    CairoMakie.save(saving_plot_path*"Test_single_ear.png",fig)
+end
+
+#plot_concatenated_dat(data_learn,1)
+
+#plot_single_ear_data(data_learn)
+
+print("done")
 
