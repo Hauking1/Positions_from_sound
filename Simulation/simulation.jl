@@ -26,15 +26,14 @@ function wrapper_create_save_data_full_data(batch_size_create_data::Int,listenin
 end
 
 function prepare_data_full_learn(data;ear_positions=[[1,0,0],[0,1,0],[0,0,1]],speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
-    listening_length = length(data[1,:])
-    batch_size = length(data[:,1])
+    batch_size, listening_length = size(data)
     positions_sound = rand(3*batch_size)*200 .- 100
 
-    distances = [LinearAlgebra.norm.([positions_sound[3*index+1:3*index+3] .- ear_positions[1],positions_sound[3*index+1:3*index+3] .- ear_positions[2],positions_sound[3*index+1:3*index+3] .- ear_positions[3]]) for index in range(0,batch_size-1)]/ speed_sound
-    times = [ceil.(Int,(time .- minimum(time))/dt) for time in distances]
+    @inbounds distances = [LinearAlgebra.norm.([positions_sound[3*index+1:3*index+3] .- ear_positions[1],positions_sound[3*index+1:3*index+3] .- ear_positions[2],positions_sound[3*index+1:3*index+3] .- ear_positions[3]]) for index in range(0,batch_size-1)]
+    times = [ceil.(Int,(dist/speed_sound .- minimum(dist/speed_sound))/dt) for dist in distances]
     
     results = [[[0. for _ in 1:listening_length] for _ in 1:3] for _ in 1:batch_size]
-    for index in range(1,batch_size)
+    @inbounds for index in range(1,batch_size)
         mic_data = [let shifted = (1/distances[index][n_ear]^2)*circshift(data[index,:],times[index][n_ear])
         shifted[1:times[index][n_ear]] .= 0
         shifted
@@ -43,6 +42,25 @@ function prepare_data_full_learn(data;ear_positions=[[1,0,0],[0,1,0],[0,0,1]],sp
     end 
     return results,positions_sound
 end
+
+function faster_prepare_data_full_learn(data;ear_positions=[[1,0,0],[0,1,0],[0,0,1]],speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
+    batch_size, listening_length = size(data)
+    positions_sound = rand(3*batch_size)*200 .- 100
+
+    @inbounds distances = [[LinearAlgebra.norm(positions_sound[3*index+1:3*index+3] .- ear_positions[n_ear]) for n_ear in 1:3] for index in range(0,batch_size-1)]
+    times = [ceil.(Int,(dist/speed_sound .- minimum(dist/speed_sound))/dt) for dist in distances]
+    
+    results = [[[0. for _ in 1:listening_length] for _ in 1:3] for _ in 1:batch_size]
+    @inbounds for index in range(1,batch_size)
+        @inbounds for n_ear in 1:3
+            results[index][n_ear] = (1/distances[index][n_ear]^2)*circshift(data[index,:],times[index][n_ear])
+            results[index][n_ear][1:times[index][n_ear]] .= 0
+        end
+    end 
+    return results,positions_sound
+end
+
+
 
 
 function create_save_batch_signal_encoded(batch_size_create_data::Int,saving_data_path::String)
@@ -76,12 +94,17 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 5
+batch_size_create_data = 1_000
 listening_length = 44_00
 
 #@time wrapper_create_save_data_full_data(batch_size_create_data,listening_length,saving_data_to)
 
-data_learn,positions = prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+@time data_learn_f,positions_f = faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+
+#@time data_learn,positions = prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+
+
+print("done")
 #=
 model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.relu),
     Flux.Dense(500=>100,Flux.relu),
