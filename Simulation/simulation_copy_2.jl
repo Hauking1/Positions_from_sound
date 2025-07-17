@@ -119,7 +119,7 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 1_000
+batch_size_create_data = 100
 listening_length = 200
 
 #@time wrapper_create_save_data_full_data(batch_size_create_data,listening_length,saving_data_to)
@@ -130,9 +130,9 @@ listening_length = 200
 
 #@time data_learn,positions = prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
-positions = reshape(positions,batch_size_create_data,3) # TODO correctly reshaped or different datapoints mixed?
+positions = permutedims(reshape(positions,batch_size_create_data,3),[2,1]) # TODO correctly reshaped or different datapoints mixed?
 println(typeof(data_learn))
-println(size(positions))
+println(positions[:,1])
 
 print("done")
 #
@@ -140,19 +140,20 @@ model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.relu),
     # Flux.Dense(2000=>500,Flux.relu),
     Flux.Dense(500=>100,Flux.relu),
     Flux.Dense(100=>3,Flux.relu))
+Flux.f64(model)
 
 
 # data =create_batch_signals_full_data(batch_size_create_data,listening_length)
 
 opt_state = Flux.setup(Flux.Adam(0.01), model)
 
-for epoch in 1:10
-    Flux.train!(model, [(data_learn[i],positions[i,:]) for i in 1:batch_size_create_data], opt_state) do m, x, y   
+for epoch in 1:5
+    Flux.train!(model, [(data_learn[i],positions[:,i]) for i in 1:batch_size_create_data], opt_state) do m, x, y   
         Flux.Losses.mse(m(x),y)
     end
 end
 
-println(model(data_learn[1])-positions[1,:])
+println(model(data_learn[1])-positions[:,1])
 #
 
 #@time create_save_batch_signal_encoded(batch_size_create_data,saving_data_to)
