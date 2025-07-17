@@ -62,18 +62,18 @@ function faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{
     return results,positions_sound
 end
 
-
 function less_d_faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0),(0,1,0),(0,0,1)),speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
     batch_size, listening_length = size(data)
-    positions_sound = rand(3*batch_size)*200 .- 100
+    positions_sound = StaticArrays.rand(3*batch_size) .*200 .- 100
 
     @inbounds distances = [@StaticArrays.SVector [LinearAlgebra.norm(positions_sound[3*index+1:3*index+3] .- ear_positions[n_ear]) for n_ear in 1:3] for index in range(0,batch_size-1)]
     times = [ceil.(Int,(dist/speed_sound .- minimum(dist/speed_sound))/dt) for dist in distances]
     
     results = [Vector{Float64}(undef, 3*listening_length) for _ in 1:batch_size]
-    @inbounds for index in range(1,batch_size)    #
+
+    @inbounds for index in range(1,batch_size)
         row = @view data[index, :]
-        @inbounds for n_ear in 1:3    #
+        @inbounds for n_ear in 1:3
             l_index = (n_ear-1)*listening_length+1
             u_index = n_ear*listening_length
             res_write_to = @view results[index][l_index:u_index]
