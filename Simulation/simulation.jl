@@ -132,42 +132,46 @@ listening_length = 44_00
 
 
 
-model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.relu),
-    Flux.Dense(500=>100,Flux.relu),
-    Flux.Dense(100=>3,Flux.relu))
-Flux.f64(model)
+function do_ki(batch_size_create_data,listening_length,data_learn,positions;epochs=10)
+    model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.relu),
+        Flux.Dense(500=>100,Flux.relu),
+        Flux.Dense(100=>3,Flux.relu))
+    Flux.f64(model)
 
+    opt_state = Flux.setup(Flux.Adam(), model)
 
-opt_state = Flux.setup(Flux.Adam(), model)
+    for epoch in 1:epochs
+        for index in 1:batch_size_create_data
+        # Calculate the gradient of the objective
+        # with respect to the parameters within the model:
+        grads = Flux.gradient(model) do m
+            result = m(data_learn[index])
+            Flux.Losses.mse(result, positions[index])+sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
+        end
 
-for epoch in 1:10
+        # Update the parameters so as to reduce the objective,
+        # according the chosen optimisation rule:
+        Flux.update!(opt_state, model, grads[1])
+        print("\r")
+        print("Epoch: $epoch Advanced: $(round(index/batch_size_create_data*100,digits=1))%")
+        end
+        opt_state = Flux.setup(Flux.Adam(1/(2*epoch)), model)
+    end
+
+    #@time data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+
+    g_mse = 0.
     for index in 1:batch_size_create_data
-    # Calculate the gradient of the objective
-    # with respect to the parameters within the model:
-    grads = Flux.gradient(model) do m
-        result = m(data_learn[index])
-        Flux.Losses.mse(result, positions[index])
+        g_mse +=Flux.Losses.mse(model(data_learn[index]),positions[index])/batch_size_create_data
     end
-
-    # Update the parameters so as to reduce the objective,
-    # according the chosen optimisation rule:
-    Flux.update!(opt_state, model, grads[1])
-    print("\r")
-    print("Epoch: $epoch Advanced: $(round(index/batch_size_create_data*100,digits=1))%")
-    end
-    global opt_state = Flux.setup(Flux.Adam(1/(2*epoch)), model)
+    println()
+    println("the average mse is: $g_mse")
 end
 
-#@time data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
-
-g_mse = 0.
-for index in 1:batch_size_create_data
-    global g_mse +=Flux.Losses.mse(model(data_learn[index]),positions[index])/batch_size_create_data
-end
-println()
-println("the average mse is: $g_mse")
+@time do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=1)
 
 
+#From here on only plotting
 function plot_concatenated_dat(data_learn,number_data::Int)
     fig = Makie.Figure()
     ax = Makie.Axis(fig[1, 1],title = "many signals",
