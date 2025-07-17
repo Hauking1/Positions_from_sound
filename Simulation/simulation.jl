@@ -82,7 +82,7 @@ function less_d_faster_prepare_data_full_learn(data;ear_positions=StaticArrays.S
             @inbounds results[index][l_index:l_index+times[index][n_ear]] .= 0    #
         end
     end
-    return results,positions_sound
+    return results,permutedims(reshape(positions_sound,(batch_size,3)),[2, 1])
 end
 
 
@@ -119,7 +119,7 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 1_000
+batch_size_create_data = 1_00
 listening_length = 44_00
 
 #@time wrapper_create_save_data_full_data(batch_size_create_data,listening_length,saving_data_to)
@@ -131,20 +131,41 @@ listening_length = 44_00
 #@time data_learn,positions = prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
 
-#=
+
 model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.relu),
     Flux.Dense(500=>100,Flux.relu),
     Flux.Dense(100=>3,Flux.relu))
+Flux.f64(model)
 
 
-data =create_batch_signals_full_data(batch_size_create_data,listening_length)
+opt_state = Flux.setup(Flux.Adam(), model)
 
-opt_state = Flux.setup(Flux.Adam(0.01), model)
-Flux.train!(model, train_set, opt_state)
-=#
+for epoch in 1:10
+    for index in 1:batch_size_create_data
+    # Calculate the gradient of the objective
+    # with respect to the parameters within the model:
+    grads = Flux.gradient(model) do m
+        result = m(data_learn[index])
+        Flux.Losses.mse(result, positions[index])
+    end
 
-#@time create_save_batch_signal_encoded(batch_size_create_data,saving_data_to)
+    # Update the parameters so as to reduce the objective,
+    # according the chosen optimisation rule:
+    Flux.update!(opt_state, model, grads[1])
+    print("\r")
+    print("Epoch: $epoch Advanced: $(round(index/batch_size_create_data*100,digits=1))%")
+    end
+    global opt_state = Flux.setup(Flux.Adam(1/(2*epoch)), model)
+end
 
+#@time data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+
+g_mse = 0.
+for index in 1:batch_size_create_data
+    global g_mse +=Flux.Losses.mse(model(data_learn[index]),positions[index])/batch_size_create_data
+end
+println()
+println("the average mse is: $g_mse")
 
 
 function plot_concatenated_dat(data_learn,number_data::Int)
@@ -159,7 +180,6 @@ function plot_concatenated_dat(data_learn,number_data::Int)
     CairoMakie.display(fig)
     CairoMakie.save(saving_plot_path*"Test_less_d.png",fig)
 end
-
 
 function plot_single_ear_data(data_learn)
     fig = Makie.Figure()
