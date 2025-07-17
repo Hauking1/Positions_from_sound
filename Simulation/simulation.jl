@@ -25,22 +25,27 @@ function wrapper_create_save_data_full_data(batch_size_create_data::Int,listenin
     save_signals_full_data(saving_data_path,create_batch_signals_full_data(batch_size_create_data,listening_length))
 end
 
-function prepare_data_full_learn(data;ear_positions=[[1,0,0],[0,1,0],[0,0,1]],speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
+function prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0),(0,1,0),(0,0,1)),speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
     batch_size, listening_length = size(data)
-    positions_sound = rand(3*batch_size)*200 .- 100
-
-    @inbounds distances = [LinearAlgebra.norm.([positions_sound[3*index+1:3*index+3] .- ear_positions[1],positions_sound[3*index+1:3*index+3] .- ear_positions[2],positions_sound[3*index+1:3*index+3] .- ear_positions[3]]) for index in range(0,batch_size-1)]
-    times = [ceil.(Int,(dist/speed_sound .- minimum(dist/speed_sound))/dt) for dist in distances]
+    positions_sound = StaticArrays.rand(3*batch_size) .*200 .- 100
     
-    results = [[[0. for _ in 1:listening_length] for _ in 1:3] for _ in 1:batch_size]
+    results = [Vector{Float64}(undef, 3*listening_length) for _ in 1:batch_size]
+
     @inbounds for index in range(1,batch_size)
-        mic_data = [let shifted = (1/distances[index][n_ear]^2)*circshift(data[index,:],times[index][n_ear])
-        shifted[1:times[index][n_ear]] .= 0
-        shifted
-        end for n_ear in 1:3]
-        results[index] = mic_data 
+        distances = @StaticArrays.SVector [LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*(index-1)+3] .- ear_positions[n_ear]) for n_ear in 1:3]
+        times = ceil.(Int,(distances/speed_sound .- minimum(distances/speed_sound))/dt)
+
+        row = @view data[index, :]
+        @inbounds for n_ear in 1:3
+            l_index = (n_ear-1)*listening_length+1
+            u_index = n_ear*listening_length
+            res_write_to = @view results[index][l_index:u_index]
+            circshift!(res_write_to,row,times[n_ear])
+            @inbounds results[index][l_index:u_index] .*= (1/distances[n_ear]^2)
+            @inbounds results[index][l_index:l_index+times[n_ear]] .= 0    #
+        end
     end
-    return results,positions_sound
+    return results,permutedims(reshape(positions_sound,(batch_size,3)),[2, 1])
 end
 
 function faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0),(0,1,0),(0,0,1)),speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
@@ -65,21 +70,21 @@ end
 function less_d_faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0),(0,1,0),(0,0,1)),speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
     batch_size, listening_length = size(data)
     positions_sound = StaticArrays.rand(3*batch_size) .*200 .- 100
-
-    @inbounds distances = [@StaticArrays.SVector [LinearAlgebra.norm(positions_sound[3*index+1:3*index+3] .- ear_positions[n_ear]) for n_ear in 1:3] for index in range(0,batch_size-1)]
-    times = [ceil.(Int,(dist/speed_sound .- minimum(dist/speed_sound))/dt) for dist in distances]
     
     results = [Vector{Float64}(undef, 3*listening_length) for _ in 1:batch_size]
 
     @inbounds for index in range(1,batch_size)
+        distances = @StaticArrays.SVector [LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*(index-1)+3] .- ear_positions[n_ear]) for n_ear in 1:3]
+        times = StaticArrays.SVector(ceil.(Int,(distances/speed_sound .- minimum(distances/speed_sound))/dt))
+
         row = @view data[index, :]
         @inbounds for n_ear in 1:3
             l_index = (n_ear-1)*listening_length+1
             u_index = n_ear*listening_length
             res_write_to = @view results[index][l_index:u_index]
-            circshift!(res_write_to,row,times[index][n_ear])
-            @inbounds results[index][l_index:u_index] .*= (1/distances[index][n_ear]^2)
-            @inbounds results[index][l_index:l_index+times[index][n_ear]] .= 0    #
+            circshift!(res_write_to,row,times[n_ear])
+            @inbounds results[index][l_index:u_index] .*= (1/distances[n_ear]^2)
+            @inbounds results[index][l_index:l_index+times[n_ear]] .= 0    #
         end
     end
     return results,permutedims(reshape(positions_sound,(batch_size,3)),[2, 1])
@@ -168,7 +173,7 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
     println("the average mse is: $g_mse")
 end
 
-@time do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=1)
+#@time do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=1)
 
 
 #From here on only plotting
