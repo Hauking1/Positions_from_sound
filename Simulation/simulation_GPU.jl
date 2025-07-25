@@ -4,6 +4,7 @@ import CairoMakie
 import Flux
 import LinearAlgebra
 import StaticArrays
+import CUDA
 
 
 function create_batch_signals_full_data(batch_size_create_data::Int, listening_length::Int; mic_rate::Int=44000, dt::Float64=1/mic_rate)
@@ -98,15 +99,18 @@ end
 
 
 function do_ki(batch_size_create_data,listening_length,data_learn,positions;epochs=2,new_data = 5, print_every = batch_size_create_data//1000)
+    device = Flux.gpu_device()
+    data_learn = data_learn|>device
+    positions = positions |>device
 
-    model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.tanhshrink),
-        #Flux.Dense(3*listening_length=>listening_length,Flux.tanhshrink),
-        #Flux.Dense(listening_length=>500,Flux.tanhshrink),
+    model = Flux.Chain(#Flux.Dense(3*listening_length=>500,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>listening_length,Flux.tanhshrink),
+        Flux.Dense(listening_length=>500,Flux.tanhshrink),
         Flux.Dense(500=>100,Flux.tanhshrink),
         Flux.Dense(100=>12,Flux.tanhshrink),
         Flux.Dense(12=>12,Flux.tanhshrink),
         Flux.Dense(12=>6,Flux.tanhshrink),
-        Flux.Dense(6=>3))
+        Flux.Dense(6=>3))|>device
     model = Flux.f64(model)
 
     #opt_state = Flux.setup(Flux.Adam(0.01), model)
@@ -116,7 +120,7 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
 
-    data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+    data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))|>device
     #println("size of position array: $(size(positions_test))")
     #println("size of data array: $(size(data_learn))")
 
@@ -125,6 +129,8 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
 
         if epoch%new_data==0
             data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
+            data_learn = data_learn|>device
+            positions = positions |>device
         end
         
         model = Flux.trainmode!(model)
@@ -231,7 +237,7 @@ end
 
 #println(train_acc,test_acc)
 
-plot_accuracy(train_acc,test_acc,"many_batches_larger")
+plot_accuracy(train_acc,test_acc,"test_gpu")
 
 #plot_concatenated_dat(data_learn,1)
 
