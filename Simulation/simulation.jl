@@ -181,12 +181,12 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 10_000
+batch_size_create_data = 5_00
 listening_length = 44_00
 
 @time data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
-@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=10,new_data=2,print_every=batch_size_create_data//100)
+@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=2,new_data=3,print_every=batch_size_create_data//100)
 
 
 #From here on only plotting

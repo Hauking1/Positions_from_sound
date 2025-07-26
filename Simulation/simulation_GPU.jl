@@ -98,14 +98,16 @@ end
 
 
 
-function do_ki(batch_size_create_data,listening_length,data_learn,positions;epochs=2,new_data = 5, print_every = batch_size_create_data//1000)
+function do_ki(batch_size_create_data,listening_length,data_learn,positions;epochs=2,new_data = 5, print_every = batch_size_create_data//1000, evaluation_batch_size = batch_size_create_data)
     device = Flux.gpu_device()
     data_learn = data_learn|>device
     positions = positions |>device
 
     model = Flux.Chain(#Flux.Dense(3*listening_length=>500,Flux.tanhshrink),
         Flux.Dense(3*listening_length=>listening_length,Flux.tanhshrink),
-        Flux.Dense(listening_length=>500,Flux.tanhshrink),
+        Flux.Dense(listening_length=>2000,Flux.tanhshrink),
+        Flux.Dense(2000=>1000,Flux.tanhshrink),
+        Flux.Dense(1000=>500,Flux.tanhshrink),
         Flux.Dense(500=>100,Flux.tanhshrink),
         Flux.Dense(100=>12,Flux.tanhshrink),
         Flux.Dense(12=>12,Flux.tanhshrink),
@@ -120,7 +122,7 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
 
-    data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))|>device
+    data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(evaluation_batch_size,listening_length))|>device
     #println("size of position array: $(size(positions_test))")
     #println("size of data array: $(size(data_learn))")
 
@@ -128,12 +130,10 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
     for epoch in 1:epochs
 
         if epoch%new_data==0
-            data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
-            data_learn = data_learn|>device
-            positions = positions |>device
+            data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))|>device
         end
         
-        model = Flux.trainmode!(model)
+        #model = Flux.trainmode!(model)
 
 
         for index in 1:batch_size_create_data
@@ -155,23 +155,26 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
         end
         #opt_state = Flux.setup(Flux.Adam(1/(epoch)), model)
 
+        
         g_mse_train = 0.
         g_mse_test = 0.
-        for index in 1:batch_size_create_data
-            g_mse_train +=Flux.Losses.mse(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
-            g_mse_test +=Flux.Losses.mse(model(data_test[index]),positions_test[3*(index-1)+1:3*index])/batch_size_create_data
+        for index in 1:evaluation_batch_size
+            g_mse_train += Flux.Losses.mse(model(data_learn[index]),positions[3*(index-1)+1:3*index])/evaluation_batch_size
+            g_mse_test += Flux.Losses.mse(model(data_test[index]),positions_test[3*(index-1)+1:3*index])/evaluation_batch_size
         end
         train_accuracies[epoch] = g_mse_train
         test_accuracies[epoch] = g_mse_test
+        
         print("\r")
         println("Epoch: $epoch , g_mse_train: $g_mse_train , g_mse_test: $g_mse_test")
     end
 
     #@time data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
+    
     g_mse = 0.
     for index in 1:batch_size_create_data
-        g_mse +=Flux.Losses.mse(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
+        g_mse += Flux.Losses.mse(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
     end
     println()
     println("the average mse is: $g_mse")
@@ -187,12 +190,12 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 10_000
+batch_size_create_data = 500
 listening_length = 44_00
 
 @time data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
-@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=10,new_data=2,print_every=batch_size_create_data//100)
+@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=200,new_data=1,print_every=batch_size_create_data//100,evaluation_batch_size=100)
 
 
 #From here on only plotting
