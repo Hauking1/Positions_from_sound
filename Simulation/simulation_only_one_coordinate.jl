@@ -4,7 +4,6 @@ import CairoMakie
 import Flux
 import LinearAlgebra
 import StaticArrays
-import CUDA
 
 
 function create_batch_signals_full_data(batch_size_create_data::Int, listening_length::Int; mic_rate::Int=44000, dt::Float64=1/mic_rate)
@@ -68,30 +67,18 @@ function faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{
     return results,positions_sound
 end
 
-function less_d_faster_prepare_data_full_learn(data;
-    ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0,0),(0,1,0,0),(0,0,1,0)),
-    speed_sound = 343.,
-    mic_rate::Int=44000,
-    dt::Float64=1/mic_rate,
-    num_ears=length(ear_positions))
-
-
-    #println("size of ears = $(length(ear_positions))")
+function less_d_faster_prepare_data_full_learn(data;ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0),(0,1,0),(0,0,1)),speed_sound = 343., mic_rate::Int=44000 , dt::Float64=1/mic_rate)
     batch_size, listening_length = size(data)
-    positions_sound = StaticArrays.rand(3*batch_size) .*20 .- 10
-    #positions_sound = [1 for _ in 1:3batch_size]
-    #println("on creation the position is: $positions_sound")
+    positions_sound = StaticArrays.rand(3*batch_size) .*200 .- 100
     
-    results = [Vector{Float64}(undef, num_ears*listening_length) for _ in 1:batch_size]
+    results = [Vector{Float64}(undef, 3*listening_length) for _ in 1:batch_size]
 
-    @inbounds for index in 1:batch_size
-        distances = @StaticArrays.SVector [LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*index] .- ear_positions[n_ear]) for n_ear in 1:num_ears]
+    @inbounds for index in range(1,batch_size)
+        distances = @StaticArrays.SVector [LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*(index-1)+3] .- ear_positions[n_ear]) for n_ear in 1:3]
         times = StaticArrays.SVector(ceil.(Int,(distances/speed_sound .- minimum(distances/speed_sound))/dt))
-        #println("datacreation uses these positions: $(positions_sound[3*(index-1)+1:3*index])")
-        #println(distances)
 
         row = @view data[index, :]
-        @inbounds for n_ear in 1:num_ears
+        @inbounds for n_ear in 1:3
             l_index = (n_ear-1)*listening_length+1
             u_index = n_ear*listening_length
             res_write_to = @view results[index][l_index:u_index]
@@ -110,44 +97,26 @@ end
 
 
 
+function do_ki(batch_size_create_data,listening_length,data_learn,positions;epochs=2,new_data = 5, print_every = batch_size_create_data//1000)
 
-function do_ki(batch_size_create_data,listening_length,data_learn,positions,num_ears ;epochs=2,new_data = 5, print_every = batch_size_create_data//1000, evaluation_batch_size = batch_size_create_data)
-    device = Flux.gpu_device()
-    data_learn = data_learn|>device
-    positions = positions |>device
-
-    model = Flux.Chain(#Flux.Dense(num_ears*listening_length=>500,Flux.tanhshrink),
-        Flux.Dense(num_ears*listening_length=>listening_length,Flux.tanhshrink),
+    model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.tanhshrink),
+        #Flux.Dense(3*listening_length=>listening_length,Flux.tanhshrink),
         #Flux.Dense(listening_length=>500,Flux.tanhshrink),
-        Flux.Dense(listening_length=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
-        Flux.Dense(500=>500,Flux.tanhshrink),
         Flux.Dense(500=>100,Flux.tanhshrink),
         Flux.Dense(100=>12,Flux.tanhshrink),
         Flux.Dense(12=>12,Flux.tanhshrink),
         Flux.Dense(12=>6,Flux.tanhshrink),
-        Flux.Dense(6=>3))|>device
+        Flux.Dense(6=>1))
     model = Flux.f64(model)
 
-    #opt_state = Flux.setup(Flux.Adam(0.01), model)
+    opt_state = Flux.setup(Flux.Adam(), model)
     #opt_state = Flux.setup(Flux.Descent(), model)
-    opt_state = Flux.setup(Flux.Momentum(), model)
 
 
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
 
-    data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(evaluation_batch_size,listening_length))|>device
+    data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
     #println("size of position array: $(size(positions_test))")
     #println("size of data array: $(size(data_learn))")
 
@@ -155,7 +124,7 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions,num_
     for epoch in 1:epochs
 
         if epoch%new_data==0
-            data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))|>device
+            data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
         end
         
         #model = Flux.trainmode!(model)
@@ -164,12 +133,9 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions,num_
         for index in 1:batch_size_create_data
             # Calculate the gradient of the objective
             # with respect to the parameters within the model:
-            # println()
-            # println("modl uses these positions: $(positions[3*(index-1)+1:3*index])")
-            # println()
             grads = Flux.gradient(model) do m
                 result = m(data_learn[index])
-                Flux.Losses.mse(result, positions[3*(index-1)+1:3*index])#+sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
+                Flux.Losses.mse(result, positions[3*(index-1)+1])#+sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
             end
             # Update the parameters so as to reduce the objective,
             # according the chosen optimisation rule:
@@ -183,31 +149,29 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions,num_
         end
         #opt_state = Flux.setup(Flux.Adam(1/(epoch)), model)
 
-        
         g_mse_train = 0.
         g_mse_test = 0.
-        for index in 1:evaluation_batch_size
-            g_mse_train += Flux.Losses.mae(model(data_learn[index]),positions[3*(index-1)+1:3*index])/evaluation_batch_size
-            g_mse_test += Flux.Losses.mae(model(data_test[index]),positions_test[3*(index-1)+1:3*index])/evaluation_batch_size
+        for index in 1:batch_size_create_data
+            g_mse_train +=Flux.Losses.mae(model(data_learn[index]),positions[3*(index-1)+1])/batch_size_create_data
+            g_mse_test +=Flux.Losses.mae(model(data_test[index]),positions_test[3*(index-1)+1])/batch_size_create_data
         end
         train_accuracies[epoch] = g_mse_train
         test_accuracies[epoch] = g_mse_test
-        
         print("\r")
         println("Epoch: $epoch , g_mse_train: $g_mse_train , g_mse_test: $g_mse_test")
     end
 
     #@time data_test,positions_test = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
-    
     g_mse = 0.
     for index in 1:batch_size_create_data
-        g_mse += Flux.Losses.mae(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
+        g_mse +=Flux.Losses.mae(model(data_learn[index]),positions[3*(index-1)+1])/batch_size_create_data
     end
     println()
     println("the average mse is: $g_mse")
 
-    println("the supposed position is: $(positions[1:3]) the prediction is: $(model(data_learn[1]))")
+    println("the supposed position is: $(positions[1]) the prediction is: $(model(data_learn[1]))")
+    println("mae of previous point: $(Flux.Losses.mae(model(data_learn[1]),positions[1]))")
 
     return train_accuracies,test_accuracies
 end
@@ -218,13 +182,12 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 100
-listening_length = 500
+batch_size_create_data = 10
+listening_length = 44_00
 
 @time data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
-num_ears = 4
-@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,num_ears,epochs=100,new_data=1,print_every=batch_size_create_data//100,evaluation_batch_size=10)
+@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=1000,new_data=4000,print_every=batch_size_create_data//100)
 
 
 #From here on only plotting
@@ -238,7 +201,7 @@ function plot_concatenated_dat(data_learn,number_data::Int)
     end
     Makie.axislegend()
     CairoMakie.display(fig)
-    CairoMakie.save(saving_plot_path*"Test_less_d_if_right.png",fig)
+    CairoMakie.save(saving_plot_path*"Test_less_d.png",fig)
 end
 
 function plot_single_ear_data(data_learn)
@@ -269,9 +232,9 @@ end
 
 #println(train_acc,test_acc)
 
-plot_accuracy(train_acc,test_acc,"test_gpu_overfitting")
+plot_accuracy(train_acc,test_acc,"overfitting_test_only_x")
 
-plot_concatenated_dat(data_learn,1)
+#plot_concatenated_dat(data_learn,1)
 
 #plot_single_ear_data(data_learn)
 

@@ -99,9 +99,29 @@ end
 
 function do_ki(batch_size_create_data,listening_length,data_learn,positions;epochs=2,new_data = 5, print_every = batch_size_create_data//1000)
 
-    model = Flux.Chain(Flux.Dense(3*listening_length=>500,Flux.tanhshrink),
-        #Flux.Dense(3*listening_length=>listening_length,Flux.tanhshrink),
+    model = Flux.Chain(#Flux.Dense(3*listening_length=>500,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
         #Flux.Dense(listening_length=>500,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>3*listening_length,Flux.tanhshrink),
+        Flux.Dense(3*listening_length=>listening_length,Flux.tanhshrink),
+        Flux.Dense(listening_length=>listening_length,Flux.tanhshrink),
+        Flux.Dense(listening_length=>500,Flux.tanhshrink),
         Flux.Dense(500=>100,Flux.tanhshrink),
         Flux.Dense(100=>12,Flux.tanhshrink),
         Flux.Dense(12=>12,Flux.tanhshrink),
@@ -109,8 +129,11 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
         Flux.Dense(6=>3))
     model = Flux.f64(model)
 
-    #opt_state = Flux.setup(Flux.Adam(0.01), model)
-    opt_state = Flux.setup(Flux.Descent(), model)
+    #opt_state = Flux.setup(Flux.Adam(), model)
+    #opt_state = Flux.setup(Flux.Descent(), model)
+    #opt_state = Flux.setup(Flux.NADAM(), model)
+    opt_state = Flux.setup(Flux.Momentum(), model)
+
 
 
     train_accuracies = zeros(epochs)
@@ -152,8 +175,8 @@ function do_ki(batch_size_create_data,listening_length,data_learn,positions;epoc
         g_mse_train = 0.
         g_mse_test = 0.
         for index in 1:batch_size_create_data
-            g_mse_train +=Flux.Losses.mse(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
-            g_mse_test +=Flux.Losses.mse(model(data_test[index]),positions_test[3*(index-1)+1:3*index])/batch_size_create_data
+            g_mse_train +=Flux.Losses.mae(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
+            g_mse_test +=Flux.Losses.mae(model(data_test[index]),positions_test[3*(index-1)+1:3*index])/batch_size_create_data
         end
         train_accuracies[epoch] = g_mse_train
         test_accuracies[epoch] = g_mse_test
@@ -181,12 +204,12 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 5_00
-listening_length = 44_00
+batch_size_create_data = 10
+listening_length = 500
 
 @time data_learn,positions = less_d_faster_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data,listening_length))
 
-@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=2,new_data=3,print_every=batch_size_create_data//100)
+@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,epochs=500,new_data=5,print_every=batch_size_create_data//100)
 
 
 #From here on only plotting
@@ -231,7 +254,7 @@ end
 
 #println(train_acc,test_acc)
 
-plot_accuracy(train_acc,test_acc,"many_batches_larger")
+plot_accuracy(train_acc,test_acc,"overfitting_all_position")
 
 #plot_concatenated_dat(data_learn,1)
 
