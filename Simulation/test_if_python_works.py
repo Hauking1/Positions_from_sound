@@ -1,5 +1,5 @@
-#import julia
-#julia.install()
+import julia
+julia.install()
 
 path_scripts = "\\".join(__file__.split("\\")[:-1])+"\\"
 #from julia import Main
