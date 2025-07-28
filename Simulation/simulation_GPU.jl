@@ -324,7 +324,7 @@ function do_ki_only_times(batch_size_create_data,listening_length,data_learn,pos
 end
 
 
-function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epoch,listening_length,num_ears ;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data)
+function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epoch,num_ears ;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data)
     device = Flux.gpu_device()
     @time data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
 
@@ -367,7 +367,7 @@ function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epo
         for index in 1:batches_per_epoch
             batch_start = (index - 1) * batch_size_create_data + 1
             batch_end = index * batch_size_create_data
-            raw_batch = data_learn[batch_start:batch_end]  
+            raw_batch = data_learn[batch_start:batch_end]
             data_batch = reduce(hcat, raw_batch)
             positions_batch = positions[3*(batch_start - 1) + 1 : 3*batch_end]
             positions_batch = reshape(positions_batch, 3, :)
@@ -433,7 +433,7 @@ print_new_data = batches_per_epoch//100
 
 
 #@time train_acc,test_acc = do_ki_only_times(batch_size_create_data,listening_length,data_learn,positions,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
-@time train_acc,test_acc = do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,listening_length,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
+@time train_acc,test_acc = do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
 
 #@time train_acc,test_acc = do_ki(batch_size_create_data,listening_length,data_learn,positions,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
 
