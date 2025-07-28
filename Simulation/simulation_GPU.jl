@@ -353,7 +353,7 @@ function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epo
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
 
-    data_test,positions_test = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
+    data_test,positions_test = only_times_and_dist(evaluation_batch_size)|>device
 
 
     for epoch in 1:epochs
@@ -367,14 +367,13 @@ function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epo
         for index in 1:batches_per_epoch
             batch_start = (index - 1) * batch_size_create_data + 1
             batch_end = index * batch_size_create_data
-            #data_batch = data_learn[batch_start:batch_end]
             raw_batch = data_learn[batch_start:batch_end]  
             data_batch = reduce(hcat, raw_batch)
             positions_batch = positions[3*(batch_start - 1) + 1 : 3*batch_end]
             positions_batch = reshape(positions_batch, 3, :)
             grads = Flux.gradient(model) do m
                 result = m(data_batch)
-                Flux.Losses.mse(result, positions_batch)    #+sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
+                Flux.Losses.mse(result, positions_batch)    # L1 pruning now slower
             end
             Flux.update!(opt_state, model, grads[1])
 
@@ -423,12 +422,12 @@ saving_data_to = saving_data_path*"train_batch.txt"
 
 println("HI :)")
 
-batch_size_create_data = 5_000
+batch_size_create_data = 10_000
 listening_length = 8
 num_ears = 4
-epochs = 125
+epochs = 251
 new_data = 25
-eval_b_size = 50
+eval_b_size = 100
 batches_per_epoch = 100
 print_new_data = batches_per_epoch//100
 
