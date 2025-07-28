@@ -5,6 +5,7 @@ using StaticArrays
 using LinearAlgebra
 using Flux
 using Logging
+using LaTeXStrings
 
 # 1) Daten-Generierung pro Batch (Float32, GPU-only)
 function only_times_and_dist_gpu(
@@ -41,7 +42,7 @@ function only_times_and_dist_gpu(
     # Zeit-Kanal: ceil((t - t_min) / dt)
     raw_times = distances ./ speed_sound                             # num_ears×batch
     mins      = CUDA.minimum(raw_times; dims=1)                      # 1×batch
-    times     = CUDA.ceil.((raw_times .- mins) ./ dt) .*dt                # num_ears×batch
+    times     = CUDA.ceil.((raw_times .- mins) ./ dt)                # num_ears×batch
 
     # Daten zusammenfügen: (2*num_ears) × batch_size
     data = vcat(inv2, times)
@@ -57,16 +58,15 @@ function do_ki_only_times_actual_batches(
     epochs::Int      = 10,
     new_data::Int    = 5,
     print_every::Int = max(1, batches_per_epoch ÷ 10),
-    eval_b_size::Int = 100
-)
+    eval_b_size::Int = 100)
+
     device = Flux.gpu_device()
     # a) Modell in Float32 auf GPU
     model = Flux.Chain(
-        Flux.Dense(2*num_ears, 500*num_ears, Flux.relu),
-        Flux.Dense(500*num_ears, 500*num_ears, Flux.relu),
-        Flux.Dense(500*num_ears, 500*num_ears, Flux.relu),
-        Flux.Dense(500*num_ears, 500*num_ears, Flux.tanhshrink),
-        Flux.Dense(500*num_ears, 200*num_ears, Flux.tanhshrink),
+        Flux.Dense(2*num_ears, 1000*num_ears, Flux.relu),
+        Flux.Dense(1000*num_ears, 1000*num_ears, Flux.relu),
+        Flux.Dense(1000*num_ears, 1000*num_ears, Flux.tanhshrink),
+        Flux.Dense(1000*num_ears, 200*num_ears, Flux.tanhshrink),
         Flux.Dense(200*num_ears, 100*num_ears, Flux.tanhshrink),
         Flux.Dense(100*num_ears, 3)
     ) |> device |> Flux.f32
@@ -137,7 +137,7 @@ end
 # 4) Main
 function main()
     batch_size        = 10_000
-    batches_per_epoch = 100
+    batches_per_epoch = 10
     num_ears          = 4
     epochs            = 250
 
