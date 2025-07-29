@@ -2,6 +2,7 @@ import Makie
 import LaTeXStrings
 import CairoMakie
 import Flux
+import JLD2
 import LinearAlgebra
 import StaticArrays
 
@@ -84,17 +85,17 @@ end
 function do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num_ears;epochs=2,new_data = 5, print_every = batches_per_epoch//100, evaluation_batch_size = batch_size_create_data)
     modelCNN = Flux.Chain(
     # First convolution, operating upon a listeninglengthxnum_ears image
-    Flux.Conv((1, 200), 1=>16, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1, 100), 1=>8, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
     # x -> Flux.maxpool(x, (1,3)),
 
     # Second convolution, operating upon a ...x... image
-    Flux.Conv((1, 3), 16=>32, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1, 50), 8=>16, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
     # x -> Flux.maxpool(x, (1,3)),
 
     # Third convolution, operating upon a ...x... image
-    Flux.Conv((1, 3), 32=>32, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1, 10), 16=>16, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
     # x -> Flux.maxpool(x, (1,3)),
 
@@ -102,7 +103,7 @@ function do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num
     # which is where we get the 288 in the `Dense` layer below:
     Flux.flatten,
     # x -> Flux.reshape(x, :, size(x, 4)),
-    Flux.Dense(Int(floor(listening_length/27)*32), 2),
+    Flux.Dense(Int(floor(listening_length/27)*16), 2),
 
 
     # Flux.tanhshrink,
@@ -111,8 +112,8 @@ function do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num
     )
     model = Flux.f64(modelCNN)
 
-    opt_state = Flux.setup(Flux.Adam(), model)
-    # opt_state = Flux.setup(Flux.NADAM(), model)
+    # opt_state = Flux.setup(Flux.Adam(), model)
+    opt_state = Flux.setup(Flux.NADAM(), model)
     # opt_state = Flux.setup(Flux.Descent(), model)
     # opt_state = Flux.setup(Flux.Momentum(), model)
 
@@ -147,7 +148,7 @@ function do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num
             # with respect to the parameters within the model:
             grads = Flux.gradient(model) do m
                 result = m(X_train[:,:,:,batch_start:batch_end])
-                Flux.Losses.mse(result, Y_train[batch_start:batch_end,:]') # +sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
+                Flux.Losses.mse(result, Y_train[batch_start:batch_end,:]') +sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
             end
             # Update the parameters so as to reduce the objective,
             # according the chosen optimisation rule:
@@ -191,20 +192,20 @@ function do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num
 end
 
 
-function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num_ears;epochs=2,new_data = 5, print_every = batches_per_epoch//100, evaluation_batch_size = batch_size_create_data)
+function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num_ears;epochs=2,new_data = 5, print_every = batches_per_epoch//100, evaluation_batch_size = batch_size_create_data,load_model=true)
     modelCNN = Flux.Chain(
     # First convolution, operating upon a listeninglengthxnum_ears image
-    Flux.Conv((1,200), 1=>16, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1,100), 1=>8, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
     # x -> Flux.maxpool(x, (1,3)),
 
     # Second convolution, operating upon a ...x... image
-    Flux.Conv((1,3), 16=>32, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1,50), 8=>16, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
     # x -> Flux.maxpool(x, (1,3)),
 
     # Third convolution, operating upon a ...x... image
-    Flux.Conv((1,3), 32=>32, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1,10), 16=>16, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
     # x -> Flux.maxpool(x, (1,3)),
 
@@ -212,16 +213,23 @@ function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoc
     # which is where we get the 288 in the `Dense` layer below:
     Flux.flatten,
     # x -> Flux.reshape(x, :, size(x, 4)),
-    Flux.Dense(Int(floor(listening_length/27)*32), 2),
+    Flux.Dense(Int(floor(listening_length/27)*16), 2),
 
 
     # Flux.tanhshrink,
-    Flux.leakyrelu,
+    Flux.relu,
 
     )
     model = Flux.f64(modelCNN)
+    println(Flux.display(model))
+
+    if load_model == true
+        model_state = JLD2.load("CNN_single_signal.jld2", "model_state")
+        Flux.loadmodel!(model, model_state)
+    end
 
     opt_state = Flux.setup(Flux.NADAM(), model)
+    # opt_state = Flux.setup(Flux.Adam(), model)
     # opt_state = Flux.setup(Flux.Descent(), model)
     # opt_state = Flux.setup(Flux.Momentum(), model)
 
@@ -261,7 +269,7 @@ function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoc
             # with respect to the parameters within the model:
             grads = Flux.gradient(model) do m
                 result = m(X_batch)
-                Flux.Losses.mse(result, Y_batch) # +sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
+                Flux.Losses.mse(result, Y_batch) + sum(sum.(abs2,Flux.trainables(m)))    # L1 pruning now slower
             end
             # Update the parameters so as to reduce the objective,
             # according the chosen optimisation rule:
@@ -296,9 +304,13 @@ function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoc
     println()
     println("the average mse is: $(sqrt(g_mse))")
 
-    println("the supposed time, amplitude is: $(Y_train[1:2]) the prediction is: $(model(X_train[1]))")
+    println("the supposed time, amplitude is: $(Y_train[1:2]) the prediction is: $(model(reshape(X_train[1],1,listening_length,1,1)))")
     
     # println("mse of model output is: $(Flux.Losses.mae(model(X_train[:,:,:,1:1]),positions[1:3]))")
+
+    # save trained model
+    model_state = Flux.state(model)
+    JLD2.jldsave("CNN_single_signal.jld2"; model_state)
     
     return train_accuracies,test_accuracies
 end
@@ -308,10 +320,10 @@ saving_data_path = (@__DIR__)*"/data/"
 saving_data_to = saving_data_path*"train_batch.txt"
 
 listening_length = 4400
-batch_size_create_data = 100
+batch_size_create_data = 200
 batches_per_epoch = 10
 
-@time train_acc,test_acc = flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,4;epochs=50,new_data=2,print_every=1,evaluation_batch_size=5)
+@time train_acc,test_acc = flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,4;epochs=400,new_data=5,print_every=1,evaluation_batch_size=5)
 
 
 function plot_single_ear_data(data_learn;num_ears=4)
@@ -342,4 +354,4 @@ function plot_accuracy(train_acc,test_acc,plot_name)
 end
 
 
-plot_accuracy(train_acc,test_acc,"first_cnn_test_single_signal")
+plot_accuracy(train_acc,test_acc,"first_cnn_test_single_signal_2")
