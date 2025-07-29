@@ -347,5 +347,3 @@ plot_accuracy(train_acc,test_acc,"wild_test")
 
 print("done")
 
-"test"
-
