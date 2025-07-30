@@ -115,13 +115,14 @@ function give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data,
         test_accuracies[epoch] = g_mse_test
         
         print("\r")
-        println("Epoch: $epoch , g_mse_train: $g_mse_train , g_mse_test: $g_mse_test")
+        print("Epoch: $epoch , g_mse_train: $g_mse_train , g_mse_test: $g_mse_test")
     end
     
     g_mse = 0.
     for index in 1:batch_size_create_data
         g_mse += Flux.Losses.mae(model(data_learn[index]),positions[3*(index-1)+1:3*index])/batch_size_create_data
     end
+    print("\r")
     println()
     println("the average mse is: $g_mse")
 
@@ -195,7 +196,9 @@ for model_value in 1:100
     BSON.@save saving_data_path*model_name*".bson" model
 
     println("best accuracy in test data was: $(minimum(test_acc))")
-    plot_accuracy(train_acc,test_acc,"wild_test_$model_value")
+    if model_value%10==1
+        plot_accuracy(train_acc,test_acc,"wild_test_$model_value")
+    end
 end
 
 
