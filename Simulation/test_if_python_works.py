@@ -1,5 +1,5 @@
-#import julia
-#julia.install()
+import julia
+julia.install()
 
 batch_size_create_data = 100
 listening_length = 8
