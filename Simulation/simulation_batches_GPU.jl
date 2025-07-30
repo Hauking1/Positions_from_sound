@@ -8,6 +8,8 @@ import CUDA
 import BSON
 
 
+
+
 function only_times_and_dist(batch_size; ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0,0),(0,1,0,0),(0,0,1,0)), speed_sound = 343., mic_rate::Int=44000, dt::Float64=1/mic_rate, num_ears=length(ear_positions))
     positions_sound = StaticArrays.rand(3*batch_size) .*200 .- 100
     
@@ -113,18 +115,13 @@ function wild_do_ki_only_times_actual_batches(batch_size_create_data, batches_pe
     cpu_device = Flux.cpu_device()
     @time data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
 
-    num_models = 20
+    num_models = 10
     map_to = 50*num_ears
     layers = [Flux.Chain(Flux.Dense(2*num_ears => 5*layer_width*num_ears),Flux.Dense(5*layer_width*num_ears => map_to,Flux.tanhshrink)) for layer_width in 1:num_models]
     model = Flux.Chain(Flux.Parallel(vcat, layers...),
-                    Flux.Dense( num_models*map_to => num_models*map_to,Flux.tanhshrink ),
-                    Flux.Dense( num_models*map_to => num_models*map_to ,Flux.tanhshrink),
-                    Flux.Dense( num_models*map_to => num_models*map_to ,Flux.tanhshrink),
-                    Flux.Dense( num_models*map_to => num_models*map_to,Flux.tanhshrink ),
-                    Flux.Dense( num_models*map_to => num_models*map_to ,Flux.tanhshrink),
                     Flux.Dense( num_models*map_to => num_models*map_to ,Flux.tanhshrink),
                     Flux.Dense( num_models*map_to => num_models ,Flux.tanhshrink),
-                    Flux.Dense( num_models => 3))|>Flux.f64|>device
+                    Flux.Dense( num_models => 3))|>device
     #model = Flux.f64(model)
 
     #opt_state = Flux.setup(Flux.Adam(), model)
@@ -156,7 +153,7 @@ function wild_do_ki_only_times_actual_batches(batch_size_create_data, batches_pe
             positions_batch = reshape(positions_batch, 3, :)
             grads = Flux.gradient(model) do m
                 result = m(data_batch)
-                Flux.Losses.mse(result, positions_batch)    # L1 pruning now slower
+                Flux.Losses.mse(result, positions_batch)+ 0.5* mapreduce(p -> sum(abs2, p), +, Flux.trainables(m))   # L1 pruning now slower
             end
             Flux.update!(opt_state, model, grads[1])
 
@@ -178,11 +175,12 @@ function wild_do_ki_only_times_actual_batches(batch_size_create_data, batches_pe
         train_accuracies[epoch] = g_mse_train
         test_accuracies[epoch] = g_mse_test
 
-        if g_mse_test<8
+        if g_mse_test<0.005
             saving_data_path = (@__DIR__)*"/data/"
             model_name = "wild_test_model"
             model = model|>cpu_device
             BSON.@save saving_data_path*model_name*"checkpoint"*".bson" model
+            BSON.@save saving_data_path*model_name*"_state_"*"checkpoint"*".bson" model_state=Flux.state(model)
             model = model|>device
         end
         
@@ -215,21 +213,17 @@ function give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data,
         map_to = 50*num_ears
         layers = [Flux.Chain(Flux.Dense(2*num_ears => 5*layer_width*num_ears),Flux.Dense(5*layer_width*num_ears => map_to,Flux.tanhshrink)) for layer_width in 1:num_models]
         model = Flux.Chain(Flux.Parallel(vcat, layers...),
-                        Flux.Dense( num_models*map_to => num_models*map_to,Flux.tanhshrink ),
                         Flux.Dense( num_models*map_to => num_models*map_to ,Flux.tanhshrink),
                         Flux.Dense( num_models*map_to => num_models*map_to ,Flux.tanhshrink),
                         Flux.Dense( num_models*map_to => num_models ,Flux.tanhshrink),
                         Flux.Dense( num_models => 3))|>device
-
-
-        model = Flux.f64(model)
     else
         model = model|>device
     end
-    #opt_state = Flux.setup(Flux.Adam(), model)
+    opt_state = Flux.setup(Flux.Adam(), model)
     #opt_state = Flux.setup(Flux.Descent(), model)
     #opt_state = Flux.setup(Flux.Momentum(), model)
-    opt_state = Flux.setup(Flux.NADAM(), model)
+    #opt_state = Flux.setup(Flux.NADAM(), model)
 
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
@@ -253,8 +247,7 @@ function give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data,
             positions_batch = positions[3*(batch_start - 1) + 1 : 3*batch_end]
             positions_batch = reshape(positions_batch, 3, :)
             grads = Flux.gradient(model) do m
-                result = m(data_batch)
-                Flux.Losses.mse(result, positions_batch)
+                Flux.Losses.mse(m(data_batch), positions_batch)+ 0.5* mapreduce(p -> sum(abs2, p), +, Flux.trainables(m))
             end
             Flux.update!(opt_state, model, grads[1])
 
@@ -302,28 +295,35 @@ saving_data_to = saving_data_path*"train_batch.txt"
 println("HI :)")
 
 model_name = "wild_test_model"
-batch_size_create_data = 1_000
+batch_size_create_data = 3_000
 listening_length = 8
 num_ears = 4
-epochs = 1500
-new_data = 3
+epochs = 20
+new_data = 2
 eval_b_size = 100
 batches_per_epoch = 10
 print_new_data = batches_per_epoch//100
 
 
 # @time train_acc,test_acc = do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
-#@time train_acc,test_acc,model = wild_do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
-#cpu_device = Flux.cpu_device()
-#model = model|>cpu_device
-#BSON.@save saving_data_path*model_name*".bson" model
+# @time train_acc,test_acc,model = wild_do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size)
+# cpu_device = Flux.cpu_device()
+# model = model|>cpu_device
+# BSON.@save saving_data_path*model_name*".bson" model
+# BSON.@save saving_data_path*model_name*"_state"*".bson" model_state=Flux.state(model)
 
 model = BSON.load(saving_data_path*model_name*".bson")[:model]
+model_state = BSON.load(saving_data_path*model_name*"_state"*".bson")[:model_state]
+Flux.loadmodel!(model,model_state)
+model_name = "wild_test_model_3"
 display(model)
 @time train_acc,test_acc,model = give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,num_ears,epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size,model=model)
 cpu_device = Flux.cpu_device()
 model = model|>cpu_device
+BSON.@save saving_data_path*model_name*"_state"*".bson" model_state=Flux.state(model)
 BSON.@save saving_data_path*model_name*".bson" model
+
+println("best accuracy in test data was: $(minimum(test_acc))")
 
 
 #From here on only plotting
