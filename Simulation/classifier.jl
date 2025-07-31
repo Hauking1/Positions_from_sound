@@ -4,7 +4,7 @@ import CairoMakie
 import Flux
 import LinearAlgebra
 import StaticArrays
-import BSON
+import JLD2
 import DecisionTree
 
 
@@ -50,18 +50,19 @@ end
 function do_classification(batch_size_create_data, batches_per_epoch;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data,)
     data, positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch,(0.,100.))
     data_t, positions_t = spherical_only_times_and_dist(evaluation_batch_size,(0.,100.))
-    #data_t = convert(Matrix{Float64}, data_t)
-    #data = convert(Matrix{Float64}, data)
     data = permutedims(reduce(hcat, data),(2,1))
     data_t = permutedims(reduce(hcat, data_t),(2,1))
+    #println(data_t)
+    #println(positions_t)
 
     target = ceil.(Int,[LinearAlgebra.norm(positions[3*index-2:3*index]) for index in 1:batch_size_create_data*batches_per_epoch])
     target_t = ceil.(Int,[LinearAlgebra.norm(positions_t[3*index-2:3*index]) for index in 1:evaluation_batch_size])
+    #println(target_t)
     model = DecisionTree.RandomForestClassifier()
     train_acc = Float64[]
     test_acc = Float64[]
-    println(size(data))
-    println(size(target))
+    #println(size(data))
+    #println(size(target))
 
     DecisionTree.fit!(model,data, target)
     #println(DecisionTree.predict(model, data))
@@ -69,6 +70,7 @@ function do_classification(batch_size_create_data, batches_per_epoch;epochs=2,ne
     # Evaluate on train and test sets
     train_acc = sum(DecisionTree.predict(model, data) .== target) / length(target)
     test_acc = sum(DecisionTree.predict(model, data_t) .== target_t) / length(target_t)
+    #println(DecisionTree.predict(model, data_t))
     println("Train accuracy: $(round(train_acc; digits=4)), Test accuracy: $(round(test_acc; digits=4))")
     return model, train_acc, test_acc
 end
@@ -119,7 +121,9 @@ batches_per_epoch = 1
 print_new_data = batches_per_epoch//100
 
 
-classifier, train_acc, test_acc = do_classification(batch_size_create_data,batches_per_epoch)
+classifier, train_acc, test_acc = do_classification(batch_size_create_data,batches_per_epoch,evaluation_batch_size=eval_b_size)
+#println(typeof(classifier))
+JLD2.@save saving_data_path*"classifier_decision_tree.jld2" classifier
 
 print("done")
 

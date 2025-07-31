@@ -4,45 +4,9 @@ import CairoMakie
 import LinearAlgebra
 import StaticArrays
 import NLsolve
-
-function plot_single_ear_data(data_learn;num_ears=4)
-    fig = Makie.Figure()
-    ax = Makie.Axis(fig[1, 1],title = "many signals",
-    xlabel = LaTeXStrings.LaTeXString("time/dt"),
-    ylabel = LaTeXStrings.LaTeXString("signal(t)"))
-    for index_ear in range(1,num_ears)
-        Makie.lines!(ax, data_learn[index_ear],label="signal ear: $index_ear")
-    end
-    # Makie.lines!(collect(Base.Iterators.flatten(data_learn))[1],label="test")
-    Makie.axislegend()
-    CairoMakie.display(fig)
-    CairoMakie.save(saving_plot_path*"Test_ears_gpu_test.png",fig)
-end
-
-function plot_accuracy(train_acc,test_acc,plot_name)
-    fig = Makie.Figure()
-    ax = Makie.Axis(fig[1, 1],title = "loss over epochs",
-    xlabel = LaTeXStrings.LaTeXString("epochs"),
-    ylabel = LaTeXStrings.LaTeXString("loss"))
-    Makie.lines!(ax,1:length(train_acc), train_acc,label="train")
-    Makie.lines!(ax, 1:length(train_acc),test_acc,label="test")
-
-    Makie.axislegend()
-    CairoMakie.display(fig)
-    CairoMakie.save(saving_plot_path*plot_name*".png",fig)
-end
-
-function plot_missmatches(mismatches,plot_name)
-    fig = Makie.Figure()
-    ax = Makie.Axis(fig[1, 1],title = "missmatches amplitude",
-    xlabel = LaTeXStrings.LaTeXString("signal_number"),
-    ylabel = LaTeXStrings.LaTeXString("mismatch"))
-    Makie.scatter!(ax,1:length(mismatches)//2, mismatches[2:2:end],label="times",markersize =5)
-    Makie.scatter!(ax,1:length(mismatches)//2, mismatches[1:2:end],label="dists")
-    Makie.axislegend()
-    CairoMakie.display(fig)
-    CairoMakie.save(saving_plot_path*plot_name*".png",fig)
-end
+import JLD2
+import BSON
+import DecisionTree
 
 function create_batch_signals_full_data(batch_size_create_data::Int, listening_length::Int; mic_rate::Int=44000, dt::Float64=1/mic_rate)
     rand_float_0_1 = rand(Float64,3*batch_size_create_data)
@@ -135,27 +99,48 @@ function solve_system(d1::Real, d2::Real, d3::Real, d4::Real;x0::Real=50., y0::R
     end
 end
 
-
-
 saving_plot_path = (@__DIR__)*"/plots/"
 saving_data_path = (@__DIR__)*"/data/"
+saving_mini_data_path = (@__DIR__)*"/mini_models_data/"
 
 listening_length = 4400
-batch_size_create_data_viertel = 1
-data_learn,compare_to,pos_sound = flat_prepare_data_full_learn(create_batch_signals_full_data(batch_size_create_data_viertel,listening_length))
-extracted = extract_data(data_learn)
+number_data_point = 10
+
+full_signals,compare_to,pos_sound = flat_prepare_data_full_learn(create_batch_signals_full_data(number_data_point,listening_length))
+extracted = extract_data(full_signals)
+for index in 1:number_data_point
+    extracted[8*(index-1)+1:8*index] .= vcat(extracted[8*(index-1)+1:2:8*index],extracted[8*(index-1)+2:2:8*index])
+end
+JLD2.@load saving_mini_data_path*"classifier_decision_tree.jld2" classifier
+models = Vector{Int}(undef,number_data_point)
+#println(extracted)
+dat_class = reshape(extracted,8,Int(length(extracted)//8))'
+#println(dat_class)
+#println(DecisionTree.predict(classifier, dat_class))
+models .= Int.(DecisionTree.predict(classifier, dat_class))
+#println(pos_sound)
+norms = [LinearAlgebra.norm(pos_sound[3*(index-1)+1:3*index]) for index in 1:number_data_point]
+println("norm of position: $(norms)")
+println("models to be chosen: $models")
+positions_predicted = Vector{Float64}(undef,3*number_data_point)
+for index in 1:number_data_point
+    model_name = "wild_test_model_$(models[index])"
+    model_dnn = BSON.load(saving_mini_data_path*model_name*".bson")[:model]
+    model_state = BSON.load(saving_mini_data_path*model_name*"_state"*".bson")[:model_state]
+    Flux.loadmodel!(model_dnn,model_state)
+    positions_predicted[3*(index-1)+1:3*index] .= model_dnn(extracted[8*(index-1)+1:8*index])
+end
+println("predicted positions: $(positions_predicted)")
+println("actual positions: $pos_sound")
 #plot_missmatches(compare_to .-extracted,"mismatches_direkt_approach")
+
+#following for analytical solution
 
 dists_extract = extracted[1:2:end]
 dists_extract = [sqrt(1/test) for test in dists_extract]
-# println(dists_extract)
-error = Vector{Float64}(undef,batch_size_create_data_viertel*4)
+positions_ana = Vector{Float64}(undef,3*number_data_point)
 for index in 1:batch_size_create_data_viertel
-    pos_extract = solve_system(dists_extract[4*(index-1)+1:4*index]...)
-    println(pos_extract)
+    positions_ana[3*(index-1)+1:3*index] = solve_system(dists_extract[4*(index-1)+1:4*index]...)
 end
-println(pos_sound)
-
-
-#plot_single_ear_data(data_learn)
+println("the \"analytical\" solution: $positions_ana")
 
