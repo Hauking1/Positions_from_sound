@@ -4,9 +4,8 @@ import CairoMakie
 import Flux
 import LinearAlgebra
 import StaticArrays
-#import CUDA
 import BSON
-import ScikitLearn
+import DecisionTree
 
 
 function spherical_only_times_and_dist(batch_size, value_bounds=(0.,100.); ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0,0),(0,1,0,0),(0,0,1,0)), speed_sound = 343., mic_rate::Int=44000, dt::Float64=1/mic_rate, num_ears=length(ear_positions))
@@ -50,16 +49,28 @@ end
 
 function do_classification(batch_size_create_data, batches_per_epoch;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data,)
     data, positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch,(0.,100.))
-    target = ceil.(Int,[LinearAlgebra.norm(positions[3*index-2:3*index]) for index in 1:batch_size_create_data*batches_per_epoch])
-    clas = ScikitLearn.RandomForestClassifier(50)
-    for epoch in 1:epochs
-        target_one_hot = zeros(batch_size_create_data,200)
-        for index in 1:batch_size_create_data
-            target_one_hot[index,target[(epoch-1)*batch_size_create_data+index]]=1
-        end
-        clas.fit(reshape(data,1,length(data)),target_one_hot)
-    end
+    data_t, positions_t = spherical_only_times_and_dist(evaluation_batch_size,(0.,100.))
+    #data_t = convert(Matrix{Float64}, data_t)
+    #data = convert(Matrix{Float64}, data)
+    data = permutedims(reduce(hcat, data),(2,1))
+    data_t = permutedims(reduce(hcat, data_t),(2,1))
 
+    target = ceil.(Int,[LinearAlgebra.norm(positions[3*index-2:3*index]) for index in 1:batch_size_create_data*batches_per_epoch])
+    target_t = ceil.(Int,[LinearAlgebra.norm(positions_t[3*index-2:3*index]) for index in 1:evaluation_batch_size])
+    model = DecisionTree.RandomForestClassifier()
+    train_acc = Float64[]
+    test_acc = Float64[]
+    println(size(data))
+    println(size(target))
+
+    DecisionTree.fit!(model,data, target)
+    #println(DecisionTree.predict(model, data))
+
+    # Evaluate on train and test sets
+    train_acc = sum(DecisionTree.predict(model, data) .== target) / length(target)
+    test_acc = sum(DecisionTree.predict(model, data_t) .== target_t) / length(target_t)
+    println("Train accuracy: $(round(train_acc; digits=4)), Test accuracy: $(round(test_acc; digits=4))")
+    return model, train_acc, test_acc
 end
 
 function plot_accuracy(train_acc,test_acc,plot_name)
@@ -98,23 +109,17 @@ saving_data_path = (@__DIR__)*"/mini_models_data/"
 println("HI :)")
 
 #model_name = "wild_test_model"
-batch_size_create_data = 3
+batch_size_create_data = 100000
 listening_length = 8
 num_ears = 4
 epochs = 75
 new_data = 2
-eval_b_size = 100
+eval_b_size = 10000
 batches_per_epoch = 1
 print_new_data = batches_per_epoch//100
 
-#=
-l_bound,u_bound = 2,3
-@time positions_plot = only_2d_positions(10000,(l_bound,u_bound))
-plot_data(positions_plot,"test_spherical","evaluation_area:[abs($(l_bound)),abs($(u_bound))]")
-println("plotted data")
-=#
 
-do_classification(batch_size_create_data,batches_per_epoch)
+classifier, train_acc, test_acc = do_classification(batch_size_create_data,batches_per_epoch)
 
 print("done")
 

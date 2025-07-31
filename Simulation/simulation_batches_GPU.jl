@@ -24,10 +24,34 @@ function only_times_and_dist(batch_size; ear_positions=StaticArrays.SVector{3,Fl
     return results,positions_sound
 end
 
+function spherical_only_times_and_dist(batch_size, value_bounds=(0.,100.); ear_positions=StaticArrays.SVector{3,Float64}.((1,0,0,0),(0,1,0,0),(0,0,1,0)), speed_sound = 343., mic_rate::Int=44000, dt::Float64=1/mic_rate, num_ears=length(ear_positions))
+    positions_sound = rand(3*batch_size)
+    l_bound = value_bounds[1]
+    u_bound = value_bounds[2]
+    diff = u_bound-l_bound
+    for index in 1:batch_size
+        radius = sqrt(positions_sound[3*index-2])*diff+l_bound
+        theta = 2*pi*positions_sound[3*index-1]
+        phi = 2*pi*positions_sound[3*index]
+        positions_sound[3*index-2] = radius*sin(theta)*cos(phi)
+        positions_sound[3*index-1] = radius*sin(theta)*sin(phi)
+        positions_sound[3*index] = radius*cos(theta)
+    end
+    
+    results = [Vector{Float64}(undef, 2*num_ears) for _ in 1:batch_size]
+    #volumes = rand(batch_size)
+
+    @inbounds for index in 1:batch_size
+        distances = [LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*index] .- ear_positions[n_ear]) for n_ear in 1:num_ears]
+        results[index][1:num_ears] .= [1/(dist^2) for dist in distances] #volumes[index]
+        results[index][num_ears+1:end] .= ceil.(Int,(distances/speed_sound .- minimum(distances/speed_sound))/dt)
+    end
+    return results,positions_sound
+end
 
 function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epoch,num_ears ;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data)
     device = Flux.gpu_device()
-    @time data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
+    @time data_learn,positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
 
     model = Flux.Chain(Flux.Dense(2*num_ears=>50*num_ears,Flux.tanhshrink),Flux.Dense(50*num_ears=>3))|>device
     
@@ -48,13 +72,13 @@ function do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epo
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
 
-    data_test,positions_test = only_times_and_dist(evaluation_batch_size)|>device
+    data_test,positions_test = spherical_only_times_and_dist(evaluation_batch_size)|>device
 
 
     for epoch in 1:epochs
 
         if epoch%new_data==0
-            data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
+            data_learn,positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
         end
         
         #model = Flux.trainmode!(model)
@@ -113,7 +137,7 @@ end
 function wild_do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epoch,num_ears ;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data)
     device = Flux.gpu_device()
     cpu_device = Flux.cpu_device()
-    @time data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
+    @time data_learn,positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
 
     num_models = 10
     map_to = 50*num_ears
@@ -133,13 +157,13 @@ function wild_do_ki_only_times_actual_batches(batch_size_create_data, batches_pe
     train_accuracies = zeros(epochs)
     test_accuracies = zeros(epochs)
 
-    data_test,positions_test = only_times_and_dist(evaluation_batch_size)|>device
+    data_test,positions_test = spherical_only_times_and_dist(evaluation_batch_size)|>device
 
 
     for epoch in 1:epochs
 
         if epoch%new_data==0
-            data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
+            data_learn,positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
         end
         
         #model = Flux.trainmode!(model)
@@ -205,7 +229,7 @@ end
 
 function give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data, batches_per_epoch,num_ears ;epochs=2,new_data = 5, print_every = batches_per_epoch//1000, evaluation_batch_size = batch_size_create_data, model = nothing)
     device = Flux.gpu_device()
-    @time data_learn,positions = only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
+    @time data_learn,positions = spherical_only_times_and_dist(batch_size_create_data*batches_per_epoch)|>device
 
     if isnothing(model)
         println("making new model")
@@ -298,10 +322,10 @@ model_name = "wild_test_model"
 batch_size_create_data = 3_000
 listening_length = 8
 num_ears = 4
-epochs = 20
+epochs = 100
 new_data = 2
 eval_b_size = 100
-batches_per_epoch = 10
+batches_per_epoch = 20
 print_new_data = batches_per_epoch//100
 
 
