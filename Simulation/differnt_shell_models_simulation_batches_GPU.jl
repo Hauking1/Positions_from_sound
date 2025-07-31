@@ -195,7 +195,82 @@ function plot_data(pos_sound,plot_name,label_text)
     CairoMakie.save(saving_plot_path*plot_name*".png",fig)
 end
 
+function plot_eval_accuracy(test_acc,plot_name)
+    fig = Makie.Figure()
+    ax = Makie.Axis(fig[1, 1],title = "accuracy per model",
+    xlabel = LaTeXStrings.LaTeXString("model"),
+    ylabel = LaTeXStrings.LaTeXString("mae"))
+    Makie.scatter!(ax, 1:length(test_acc),test_acc,label="test",markersize =7)
 
+    Makie.axislegend()
+    #CairoMakie.display(fig)
+    CairoMakie.save(saving_plot_path*plot_name*".png",fig)
+end
+
+function retrain_models()
+    io = open(saving_data_path*"end_accuracies.txt", "w")
+    io_all = open(saving_data_path*"all_accuracies.txt", "w")
+
+    #plot_data(spherical_only_2d_positions(1000,(float(0),float(100))),"test_full_data","evaluation_area:[abs(0),abs(100)]")
+
+
+    for model_value in 1:100
+        if model_value<6
+            @time positions_plot = spherical_only_2d_positions(1000,(float(model_value-1),float(model_value)))
+            plot_data(positions_plot,"data_model_$model_value","evaluation_area:[abs($(model_value-1)),abs($(model_value))]")
+            println("plotted data")
+        end
+
+        model_name = "wild_test_model_$model_value"
+        model = BSON.load(saving_data_path*model_name*".bson")[:model]
+        model_state = BSON.load(saving_data_path*model_name*"_state"*".bson")[:model_state]
+        Flux.loadmodel!(model,model_state)
+        println("now training model: $model_value")
+        @time train_acc,test_acc,model = give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,(float(model_value-1),float(model_value)),epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size,model=model)
+        cpu_device = Flux.cpu_device()
+        model = model|>cpu_device
+        BSON.@save saving_data_path*model_name*"_state"*".bson" model_state=Flux.state(model)
+        BSON.@save saving_data_path*model_name*".bson" model
+        println("best accuracy in test data was: $(minimum(test_acc))")
+        write(io, string(last(train_acc))*","*string(last(test_acc))*"\n")
+        write(io_all, join(string.(train_acc),",")*"\t"*join(string.(test_acc),",")*"\n")
+        flush(io)
+        flush(io_all)
+
+        if model_value%5==1
+            plot_accuracy(train_acc,test_acc,"wild_test_$model_value")
+        end
+    end
+
+    close(io)
+    close(io_all)
+end
+
+function eval_models(evaluation_batch_size)
+    io = open(saving_data_path*"end_accuracies_after_train.txt", "w")
+    all_accuracies = Vector{Float64}(undef,100)
+
+    for model_value in 1:100
+        model_name = "wild_test_model_$model_value"
+        model = BSON.load(saving_data_path*model_name*".bson")[:model]
+        model_state = BSON.load(saving_data_path*model_name*"_state"*".bson")[:model_state]
+        Flux.loadmodel!(model,model_state)
+        println("now evaluating model: $model_value")
+        data_test,positions_test = spherical_only_times_and_dist(evaluation_batch_size,(float(model_value-1),float(model_value)))
+        data_test = reduce(hcat, data_test)
+        positions_test = reshape(positions_test, 3, :)
+        test_acc = 0.
+        #for index in 1:evaluation_batch_size
+        test_acc += Flux.Losses.mae(model(data_test),positions_test)
+        #end
+        all_accuracies[model_value]=test_acc
+        write(io, string(test_acc)*"\n")
+        flush(io)
+    end
+
+    close(io)
+    return all_accuracies
+end
 
 
 saving_plot_path = (@__DIR__)*"/plots_mini_models/"
@@ -209,49 +284,16 @@ println("HI :)")
 batch_size_create_data = 3_000
 listening_length = 8
 num_ears = 4
-epochs = 50
+epochs = 10
 new_data = 2
-eval_b_size = 100
+eval_b_size = 1000
 batches_per_epoch = 10
 print_new_data = batches_per_epoch//100
-io = open(saving_data_path*"end_accuracies.txt", "w")
-io_all = open(saving_data_path*"all_accuracies.txt", "w")
-
-plot_data(spherical_only_2d_positions(1000,(float(0),float(100))),"test_full_data","evaluation_area:[abs(0),abs(100)]")
 
 
-for model_value in 1:100
-    if model_value<6
-        @time positions_plot = spherical_only_2d_positions(1000,(float(model_value-1),float(model_value)))
-        plot_data(positions_plot,"data_model_$model_value","evaluation_area:[abs($(model_value-1)),abs($(model_value))]")
-        println("plotted data")
-    end
-
-    model_name = "wild_test_model_$model_value"
-    model = BSON.load(saving_data_path*model_name*".bson")[:model]
-    model_state = BSON.load(saving_data_path*model_name*"_state"*".bson")[:model_state]
-    Flux.loadmodel!(model,model_state)
-    println("now training model: $model_value")
-    @time train_acc,test_acc,model = give_model_wild_do_ki_only_times_actual_batches(batch_size_create_data,batches_per_epoch,(float(model_value-1),float(model_value)),epochs=epochs ,new_data=new_data,print_every=print_new_data,evaluation_batch_size=eval_b_size,model=model)
-    cpu_device = Flux.cpu_device()
-    model = model|>cpu_device
-    BSON.@save saving_data_path*model_name*"_state"*".bson" model_state=Flux.state(model)
-    BSON.@save saving_data_path*model_name*".bson" model
-    println("best accuracy in test data was: $(minimum(test_acc))")
-    write(io, string(last(train_acc))*","*string(last(test_acc))*"\n")
-    write(io_all, join(string.(train_acc),",")*"\t"*join(string.(test_acc),",")*"\n")
-    flush(io)
-    flush(io_all)
-
-    if model_value%5==1
-        plot_accuracy(train_acc,test_acc,"wild_test_$model_value")
-    end
-end
-
-close(io)
-close(io_all)
-
-
+#retrain_models()
+all_acc = eval_models(eval_b_size)
+plot_eval_accuracy(all_acc,"model_evaluation")
 
 print("done")
 
