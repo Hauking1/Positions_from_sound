@@ -11,7 +11,7 @@ function create_batch_signals_full_data(batch_size_create_data::Int, listening_l
     rand_float_0_1 = rand(Float64,3*batch_size_create_data)
     results = zeros(batch_size_create_data,listening_length)
     for index in range(0,batch_size_create_data-1)
-        results[index+1,:] = rand_float_0_1[3*index+1]*sin.(rand_float_0_1[3*index+2]*20_000* dt *(0:listening_length-1) .+ rand_float_0_1[3*index+3])
+        results[index+1,:] = #=(rand_float_0_1[3*index+1]*90+10)*=#sin.((rand_float_0_1[3*index+2]*20_000+40)* dt *(0:listening_length-1) .+ 2*pi*rand_float_0_1[3*index+3])
     end
     return results
 end
@@ -77,72 +77,46 @@ function flat_prepare_data_full_learn(data,value_bounds=(0.,100.);
 
     disttime = Vector{Float64}(undef, num_ears*batch_size*2)
     results = [Vector{Float64}(undef, listening_length) for _ in 1:num_ears*batch_size]
-    # for index in range(1,batch_size*num_ears)
-    #     row = @view data[index, :]
-    #     for ear in 1:num_ears
-    #         disttime[2*index-1] = LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*(index-1)+3] .- ear_positions[ear])
-    #         disttime[2*index] = ceil(Int,(disttime[2*index-1]/speed_sound)/dt)
-
-    #         circshift!(results[index],row,disttime[2*index])
-    #         results[index] .*= (1/disttime[2*index-1]^2)
-    #         results[index][1:Int(disttime[2*index])] .= 0
-    #     end
-    # end
     @inbounds for index in 1:batch_size
         distances = [LinearAlgebra.norm(positions_sound[3*(index-1)+1:3*index] .- ear_positions[n_ear]) for n_ear in 1:num_ears]
         times = ceil.(Int,(distances/speed_sound .- minimum(distances/speed_sound))/dt)
         row = @view data[index, :]
 
         @inbounds for n_ear in 1:num_ears
+            result_idx = (index - 1)*num_ears + n_ear
             #res_write_to = @view results[num_ears*index+1-(num_ears-(n_ear-1))]
-            circshift!(results[num_ears*index+1-(num_ears-(n_ear-1))],row,times[n_ear])
-            @inbounds results[index] .*= (1/distances[n_ear]^2)
-            @inbounds results[index][1:times[n_ear]] .= 0
-            disttime[2*num_ears*index+1-2*(num_ears-(n_ear-1))]= 1/(distances[n_ear]^2)
-            disttime[2*num_ears*index+2-2*(num_ears-(n_ear-1))]= times[n_ear]
+            circshift!(results[result_idx],row,times[n_ear])
+            @inbounds results[result_idx] .*= (1/distances[n_ear]^2)
+            @inbounds results[result_idx][1:times[n_ear]] .= 0
+            disttime[2*result_idx-1]= 1/(distances[n_ear]^2)
+            disttime[2*result_idx]= times[n_ear]
         end
     end
     return results,disttime
 end
 
-function prepare_for_single_signal_CNN(data_learn,times,distances,batch_size,listening_length)
-    signals = collect(Base.Iterators.flatten(data_learn))
-    X = reshape(collect(Base.Iterators.flatten(signals)),(1,listening_length,1,4*batch_size))
-    
-    times = collect(Base.Iterators.flatten(times))
-    amplitudes = 1 ./ collect(Base.Iterators.flatten(distances)) .^2
-    Y = [times amplitudes]
-    return X,Y
-end
-
 function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoch,num_ears,saving_data_path;epochs=2,new_data = 5, print_every = batches_per_epoch//100, evaluation_batch_size = batch_size_create_data,load_model=true)
     modelCNN = Flux.Chain(
     # First convolution, operating upon a listeninglengthxnum_ears image
-    Flux.Conv((1,100), 1=>8, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1,200), 1=>8, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
-    # x -> Flux.maxpool(x, (1,3)),
 
     # Second convolution, operating upon a ...x... image
-    Flux.Conv((1,50), 8=>16, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.Conv((1,100), 8=>16, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
-    # x -> Flux.maxpool(x, (1,3)),
 
     # Third convolution, operating upon a ...x... image
+    Flux.Conv((1,50), 16=>16, pad=Flux.SamePad(), Flux.leakyrelu),
+    Flux.MaxPool((1,3)),
     Flux.Conv((1,10), 16=>16, pad=Flux.SamePad(), Flux.leakyrelu),
     Flux.MaxPool((1,3)),
-    # x -> Flux.maxpool(x, (1,3)),
 
     # Reshape 3d tensor into a 2d one, at this point it should be (3, 3, 32, N)
     # which is where we get the 288 in the `Dense` layer below:
     Flux.flatten,
-    # x -> Flux.reshape(x, :, size(x, 4)),
-    Flux.Dense(Int(floor(listening_length/27)*16), 2),
+    Flux.Dense(Int(floor(listening_length/(27*3))*16)=>100,Flux.relu),
+    Flux.Dense(100=>2,Flux.relu))
 
-
-    # Flux.tanhshrink,
-    Flux.relu,
-
-    )
     model = Flux.f64(modelCNN)
     println(Flux.display(model))
 
@@ -151,8 +125,8 @@ function flat_do_ki_CNN(batch_size_create_data,listening_length,batches_per_epoc
         Flux.loadmodel!(model, model_state)
     end
 
-    opt_state = Flux.setup(Flux.NADAM(), model)
-    # opt_state = Flux.setup(Flux.Adam(), model)
+    # opt_state = Flux.setup(Flux.NADAM(), model)
+    opt_state = Flux.setup(Flux.Adam(), model)
     # opt_state = Flux.setup(Flux.Descent(), model)
     # opt_state = Flux.setup(Flux.Momentum(), model)
 
@@ -237,15 +211,16 @@ saving_data_path = (@__DIR__)*"/data/"
 saving_data_to = saving_data_path*"train_batch.txt"
 
 listening_length = 4400
-batch_size_create_data_viertel = 400
+batch_size_create_data_viertel = 200
 batches_per_epoch = 10
 num_ears = 4
-epochs = 10
-new_data = 5
+epochs = 50
+new_data = 2
 print_ever = 1
 evaluation_batch_size = 100
+load_model = true
 
-@time train_acc,test_acc,model = flat_do_ki_CNN(batch_size_create_data_viertel,listening_length,batches_per_epoch,num_ears,saving_data_path;epochs=epochs,new_data=new_data,print_every=print_ever,evaluation_batch_size=evaluation_batch_size)
+@time train_acc,test_acc,model = flat_do_ki_CNN(batch_size_create_data_viertel,listening_length,batches_per_epoch,num_ears,saving_data_path;epochs=epochs,new_data=new_data,print_every=print_ever,evaluation_batch_size=evaluation_batch_size,load_model=load_model)
 
 
 function plot_single_ear_data(data_learn;num_ears=4)
@@ -254,12 +229,12 @@ function plot_single_ear_data(data_learn;num_ears=4)
     xlabel = LaTeXStrings.LaTeXString("time/dt"),
     ylabel = LaTeXStrings.LaTeXString("signal(t)"))
     for index_ear in range(1,num_ears)
-        Makie.lines!(ax, data_learn[1][index_ear],label="signal ear: $index_ear")
+        Makie.lines!(ax, data_learn[index_ear],label="signal ear: $index_ear")
     end
     # Makie.lines!(collect(Base.Iterators.flatten(data_learn))[1],label="test")
     Makie.axislegend()
     CairoMakie.display(fig)
-    # CairoMakie.save(saving_plot_path*"Test_single_ear.png",fig)
+    CairoMakie.save(saving_plot_path*"Test_ears_gpu_test.png",fig)
 end
 
 function plot_accuracy(train_acc,test_acc,plot_name)
@@ -275,5 +250,7 @@ function plot_accuracy(train_acc,test_acc,plot_name)
     CairoMakie.save(saving_plot_path*plot_name*".png",fig)
 end
 
+#data_learn,_ = flat_prepare_data_full_learn(create_batch_signals_full_data(4,listening_length))
+#plot_single_ear_data(data_learn)
 
 plot_accuracy(train_acc,test_acc,"first_cnn_test_single_signal_2_gpu")

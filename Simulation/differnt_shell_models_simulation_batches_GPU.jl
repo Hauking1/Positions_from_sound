@@ -217,6 +217,8 @@ print_new_data = batches_per_epoch//100
 io = open(saving_data_path*"end_accuracies.txt", "w")
 io_all = open(saving_data_path*"all_accuracies.txt", "w")
 
+plot_data(spherical_only_2d_positions(1000,(float(0),float(100))),"test_full_data","evaluation_area:[abs(0),abs(100)]")
+
 
 for model_value in 1:100
     if model_value<6
@@ -245,6 +247,7 @@ for model_value in 1:100
         plot_accuracy(train_acc,test_acc,"wild_test_$model_value")
     end
 end
+
 close(io)
 close(io_all)
 
